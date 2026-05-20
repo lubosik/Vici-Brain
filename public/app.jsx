@@ -120,27 +120,120 @@ function StatCard({ label, value, sub, color }) {
 }
 
 // ---- EVENT FEED ----
-function EventFeed({ events }) {
+function EventFeed({ events, onSelectOrder }) {
   return (
     <div className="panel">
       <div className="panel-header">
-        <h3>Live Event Feed</h3>
-        <span>{events.length} events</span>
+        <h3>Recent Orders</h3>
+        <span>{events.length} orders</span>
       </div>
       <div className="event-feed">
-        {events.length === 0 && <div className="empty">No events yet</div>}
-        {events.map((ev, i) => (
-          <div key={ev.id || i} className={`event-item src-${ev.source || 'system'}`}>
-            <div className="event-icon">{sourceIcon(ev.source)}</div>
-            <div className="event-body">
-              <div className="event-type">{ev.event_type}</div>
-              <div className="event-detail">
-                {ev.customer_email || (ev.payload && (ev.payload.order_id ? `Order #${ev.payload.order_id}` : JSON.stringify(ev.payload).slice(0, 60)))}
+        {events.length === 0 && <div className="empty">No orders yet</div>}
+        {events.map((ev, i) => {
+          const items = ev.payload?.items || [];
+          const productStr = items.slice(0, 2).join(', ') + (items.length > 2 ? ` +${items.length - 2} more` : '');
+          const statusColor = { completed: '#16a34a', processing: '#2563eb', 'on-hold': '#d97706', cancelled: '#dc2626', refunded: '#6b7280' }[ev.payload?.status] || '#6b7280';
+          return (
+            <div
+              key={ev.id || i}
+              className="event-item src-woocommerce"
+              style={{ cursor: 'pointer' }}
+              onClick={() => onSelectOrder && onSelectOrder(ev.payload?.order_id)}
+            >
+              <div className="event-icon">🛒</div>
+              <div className="event-body">
+                <div className="event-type">
+                  Order #{ev.payload?.order_id}
+                  <span style={{ marginLeft: 8, fontSize: '11px', color: statusColor, fontWeight: 600 }}>
+                    {(ev.payload?.status || '').toUpperCase()}
+                  </span>
+                </div>
+                <div className="event-detail" style={{ color: '#9ca3af' }}>
+                  {ev.customer_email} · <strong style={{ color: '#e5e7eb' }}>${parseFloat(ev.payload?.total || 0).toFixed(2)}</strong>
+                </div>
+                <div className="event-detail" style={{ fontSize: '11px', color: '#6b7280', marginTop: 2 }}>
+                  {productStr}
+                </div>
               </div>
+              <div className="event-time">{timeAgo(ev.created_at)}</div>
             </div>
-            <div className="event-time">{timeAgo(ev.created_at)}</div>
-          </div>
-        ))}
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ---- ORDER DETAIL MODAL ----
+function OrderDetailModal({ orderId, onClose }) {
+  const [order, setOrder] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    if (!orderId) return;
+    setLoading(true);
+    api(`/api/orders?status=all&search=${orderId}`)
+      .then(res => {
+        const found = (res.orders || res || []).find(o => String(o.woo_order_id) === String(orderId));
+        setOrder(found || null);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, [orderId]);
+
+  if (!orderId) return null;
+  const items = order ? (Array.isArray(order.items) ? order.items : []) : [];
+  const addr = order?.shipping_address || {};
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.7)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center' }} onClick={onClose}>
+      <div style={{ background:'#1a1a1a', border:'1px solid #2e2e2e', borderRadius:12, padding:32, width:480, maxHeight:'80vh', overflowY:'auto', position:'relative' }} onClick={e => e.stopPropagation()}>
+        <button onClick={onClose} style={{ position:'absolute', top:16, right:16, background:'none', border:'none', color:'#6b7280', fontSize:20, cursor:'pointer' }}>✕</button>
+        {loading ? (
+          <div className="loading"><div className="spinner"></div>Loading order...</div>
+        ) : !order ? (
+          <div className="empty">Order #{orderId} not found in local DB yet</div>
+        ) : (
+          <>
+            <h2 style={{ margin:'0 0 4px', color:'#e5e7eb' }}>Order #{order.woo_order_id}</h2>
+            <div style={{ marginBottom:16, display:'flex', gap:8, flexWrap:'wrap' }}>
+              <span className={orderBadgeClass(order.status)}>{order.status}</span>
+              <span style={{ color:'#22c55e', fontWeight:700, fontSize:18 }}>${parseFloat(order.total||0).toFixed(2)}</span>
+              <span style={{ color:'#6b7280', fontSize:13 }}>{fmtDate(order.created_at)}</span>
+            </div>
+            <div style={{ marginBottom:16 }}>
+              <div style={{ color:'#9ca3af', fontSize:12, marginBottom:4 }}>CUSTOMER</div>
+              <div style={{ color:'#e5e7eb' }}>{order.customer_email}</div>
+              {order.customer_phone && <div style={{ color:'#6b7280' }}>{order.customer_phone}</div>}
+            </div>
+            <div style={{ marginBottom:16 }}>
+              <div style={{ color:'#9ca3af', fontSize:12, marginBottom:4 }}>ITEMS</div>
+              {items.length === 0 ? <div style={{ color:'#6b7280' }}>—</div> : items.map((item, i) => (
+                <div key={i} style={{ display:'flex', justifyContent:'space-between', padding:'6px 0', borderBottom:'1px solid #242424' }}>
+                  <span style={{ color:'#e5e7eb' }}>{item.quantity || 1}× {item.name}</span>
+                  <span style={{ color:'#9ca3af' }}>${parseFloat(item.price||0).toFixed(2)}</span>
+                </div>
+              ))}
+            </div>
+            {(order.tracking_number || order.carrier) && (
+              <div style={{ marginBottom:16 }}>
+                <div style={{ color:'#9ca3af', fontSize:12, marginBottom:4 }}>SHIPPING</div>
+                <div style={{ color:'#e5e7eb' }}>{order.carrier} — {order.tracking_number}</div>
+                <div style={{ color:'#6b7280', fontSize:12 }}>Status: {order.shipment_status || '—'}</div>
+              </div>
+            )}
+            {addr.address_1 && (
+              <div>
+                <div style={{ color:'#9ca3af', fontSize:12, marginBottom:4 }}>SHIP TO</div>
+                <div style={{ color:'#6b7280', fontSize:13, lineHeight:1.6 }}>
+                  {addr.first_name} {addr.last_name}<br/>
+                  {addr.address_1}{addr.address_2 ? `, ${addr.address_2}` : ''}<br/>
+                  {addr.city}, {addr.state} {addr.postcode}
+                </div>
+              </div>
+            )}
+          </>
+        )}
       </div>
     </div>
   );
@@ -170,6 +263,7 @@ function OverviewTab({ onAuthError }) {
   const [events, setEvents] = useState([]);
   const [signals, setSignals] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [selectedOrderId, setSelectedOrderId] = useState(null);
   const esRef = useRef(null);
 
   const loadData = useCallback(async () => {
@@ -230,6 +324,7 @@ function OverviewTab({ onAuthError }) {
 
   return (
     <div>
+      <OrderDetailModal orderId={selectedOrderId} onClose={() => setSelectedOrderId(null)} />
       <div className="stats-grid">
         <StatCard label="Today Revenue" value={fmt(stats.today?.revenue)} sub={`${stats.today?.orders || 0} orders today`} color="green" />
         <StatCard label="Month Revenue" value={fmt(stats.this_month?.revenue)} sub={`${stats.this_month?.orders || 0} orders this month`} />
@@ -238,7 +333,7 @@ function OverviewTab({ onAuthError }) {
       </div>
 
       <div className="two-col">
-        <EventFeed events={events} />
+        <EventFeed events={events} onSelectOrder={setSelectedOrderId} />
         <div>
           <div className="panel" style={{ marginBottom: 16 }}>
             <div className="panel-header"><h3>Lifecycle Breakdown</h3></div>

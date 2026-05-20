@@ -80,9 +80,34 @@ router.get('/dashboard/stats', requireAuth, async (req, res) => {
 router.get('/dashboard/feed', requireAuth, async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 50;
-    const { data, error } = await supabase.from('brain_events').select('*').order('created_at', { ascending: false }).limit(limit);
+    // Pull from brain_orders ordered by actual WooCommerce order date — always accurate regardless of sync timing
+    const { data: orders, error } = await supabase
+      .from('brain_orders')
+      .select('woo_order_id, customer_email, customer_phone, status, total, items, tracking_number, carrier, shipment_status, created_at, updated_at')
+      .order('created_at', { ascending: false })
+      .limit(limit);
     if (error) throw error;
-    res.json(data);
+
+    const feed = (orders || []).map(o => {
+      const items = Array.isArray(o.items) ? o.items : [];
+      const productList = items.map(i => i.name).filter(Boolean).join(', ') || 'Products';
+      const shipped = o.tracking_number ? ` · Tracking: ${o.tracking_number}` : '';
+      return {
+        id: `order-${o.woo_order_id}`,
+        event_type: `order.${o.status}`,
+        source: 'woocommerce',
+        customer_email: o.customer_email,
+        created_at: o.created_at,
+        payload: {
+          order_id: o.woo_order_id,
+          total: o.total,
+          status: o.status,
+          items: items.map(i => i.name),
+          summary: `Order #${o.woo_order_id} — ${o.customer_email} — $${o.total} — ${productList}${shipped}`
+        }
+      };
+    });
+    res.json(feed);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -151,7 +176,8 @@ router.get('/orders', requireAuth, async (req, res) => {
       .select('*', { count: 'exact' })
       .order('created_at', { ascending: false })
       .range(from, from + limit - 1);
-    if (req.query.status) q = q.eq('status', req.query.status);
+    if (req.query.status && req.query.status !== 'all') q = q.eq('status', req.query.status);
+    if (req.query.search) q = q.or(`woo_order_id.eq.${req.query.search},customer_email.ilike.%${req.query.search}%`);
     const { data, count, error } = await q;
     if (error) throw error;
     res.json({ orders: data, total: count, page, limit });
