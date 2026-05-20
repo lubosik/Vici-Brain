@@ -1,0 +1,10 @@
+/* Vici Brain — Custom Obsidian Styling */
+.vici-brain-index h1 { color: #16a34a; }
+.tag[href="#customer"] { background: #1a3a2a !important; color: #22c55e !important; }
+.tag[href="#order"] { background: #1a2a3a !important; color: #60a5fa !important; }
+.tag[href="#signal"] { background: #3a1a1a !important; color: #f87171 !important; }
+.tag[href="#campaign"] { background: #2a1a3a !important; color: #c084fc !important; }
+.tag[href="#product"] { background: #2a2a1a !important; color: #fbbf24 !important; }
+.tag[href="#urgent"] { background: #3a0000 !important; color: #ff4444 !important; border: 1px solid #ff4444 !important; }
+.tag[href="#high"] { background: #3a2000 !important; color: #ffa500 !important; }
+.tag[href="#champion"] { background: #2a1a3a !important; color: #a855f7 !important; }

@@ -1,0 +1,26 @@
+{
+  "name": "vici-brain",
+  "version": "1.0.0",
+  "description": "Vici Peptides AI Second Brain",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "analyse": "node jobs/intelligence-runner.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.106.1",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.5.2",
+    "express-session": "^1.19.0",
+    "helmet": "^8.1.0",
+    "node-cron": "^4.2.1",
+    "uuid": "^14.0.0",
+    "ws": "^8.20.1"
+  }
+}

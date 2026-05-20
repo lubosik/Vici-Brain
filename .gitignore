@@ -1,0 +1,6 @@
+node_modules/
+.env
+*.db
+.DS_Store
+obsidian-vault/Vici Brain/Customers/
+obsidian-vault/Vici Brain/Orders/
