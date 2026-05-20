@@ -7,6 +7,7 @@ const helmet = require('helmet');
 const path = require('path');
 
 const app = express();
+app.set('trust proxy', 1); // Railway sits behind a reverse proxy
 const sseClients = new Set();
 
 function broadcastEvent(event) {
@@ -30,7 +31,7 @@ app.use(session({
   cookie: {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
-    sameSite: 'strict',
+    sameSite: 'lax',
     maxAge: 7 * 24 * 60 * 60 * 1000
   }
 }));
