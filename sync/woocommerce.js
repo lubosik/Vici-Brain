@@ -155,6 +155,126 @@ async function processWebhookOrder(payload) {
   }
 }
 
+async function processWebhookCustomer(payload) {
+  try {
+    const c = Buffer.isBuffer(payload)
+      ? JSON.parse(payload.toString())
+      : (typeof payload === 'string' ? JSON.parse(payload) : payload);
+
+    if (!c.email) return;
+
+    await supabase.from('brain_customers').upsert({
+      email: c.email,
+      phone: c.billing?.phone || null,
+      first_name: c.first_name || '',
+      last_name: c.last_name || '',
+      woo_customer_id: String(c.id),
+      acquisition_source: 'woocommerce',
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'email' });
+
+    await supabase.from('brain_events').insert({
+      event_type: 'customer.created',
+      source: 'woocommerce',
+      customer_email: c.email,
+      payload: { woo_customer_id: c.id, name: `${c.first_name} ${c.last_name}` }
+    });
+
+    // Write Obsidian note for new customer
+    const { data: custRow } = await supabase.from('brain_customers').select('*').eq('email', c.email).single();
+    if (custRow) {
+      const obsidian = require('../obsidian');
+      await obsidian.writeCustomerNote(custRow, {}, []).catch(e => console.error('Obsidian customer write failed:', e.message));
+    }
+
+    console.log(`Customer upserted: ${c.email}`);
+  } catch (err) {
+    console.error('processWebhookCustomer error:', err.message);
+  }
+}
+
+async function processWebhookProduct(payload, eventType = 'product.updated') {
+  try {
+    const p = Buffer.isBuffer(payload)
+      ? JSON.parse(payload.toString())
+      : (typeof payload === 'string' ? JSON.parse(payload) : payload);
+
+    if (!p.id) return;
+
+    // Skip drafts, private, trash
+    if (['draft', 'private', 'trash', 'pending'].includes(p.status)) {
+      console.log(`Skipping product ${p.id} — status: ${p.status}`);
+      return;
+    }
+
+    const categories = (p.categories || []).map(c => c.name);
+
+    await supabase.from('brain_products').upsert({
+      woo_product_id: String(p.id),
+      name: p.name,
+      sku: p.sku || null,
+      price: parseFloat(p.price || p.regular_price || 0),
+      stock_quantity: p.stock_quantity || 0,
+      stock_status: p.stock_status || 'instock',
+      categories,
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'woo_product_id' });
+
+    await supabase.from('brain_events').insert({
+      event_type: eventType,
+      source: 'woocommerce',
+      customer_email: null,
+      payload: { product_id: p.id, name: p.name, stock_status: p.stock_status, price: p.price }
+    });
+
+    // Alert on stock going out — insert a signal
+    if (p.stock_status === 'outofstock') {
+      await supabase.from('brain_signals').insert({
+        signal_type: 'stock_alert',
+        customer_email: null,
+        product_name: p.name,
+        suggested_action: `${p.name} is now OUT OF STOCK. Consider running a waitlist or pre-order campaign.`,
+        suggested_message: `Get on the waitlist for ${p.name} — back in stock soon.`,
+        priority: 'urgent'
+      });
+      console.log(`URGENT signal: ${p.name} is out of stock`);
+    } else if (typeof p.stock_quantity === 'number' && p.stock_quantity > 0 && p.stock_quantity <= 10) {
+      await supabase.from('brain_signals').insert({
+        signal_type: 'low_stock_alert',
+        customer_email: null,
+        product_name: p.name,
+        suggested_action: `${p.name} has only ${p.stock_quantity} units left. Consider a scarcity campaign.`,
+        suggested_message: `Only ${p.stock_quantity} left of ${p.name} — order now before it sells out.`,
+        priority: 'high'
+      });
+    }
+
+    // Write Obsidian product note
+    const { data: prodRow } = await supabase.from('brain_products').select('*').eq('woo_product_id', String(p.id)).single();
+    if (prodRow) {
+      const obsidian = require('../obsidian');
+      await obsidian.writeProductNote(prodRow).catch(e => console.error('Obsidian product write failed:', e.message));
+    }
+
+    console.log(`Product upserted: ${p.name} (${p.stock_status})`);
+  } catch (err) {
+    console.error('processWebhookProduct error:', err.message);
+  }
+}
+
+async function processWebhookOrderDeleted(payload) {
+  try {
+    const body = Buffer.isBuffer(payload)
+      ? JSON.parse(payload.toString())
+      : (typeof payload === 'string' ? JSON.parse(payload) : payload);
+    if (!body.id) return;
+    await supabase.from('brain_orders').update({ status: 'deleted', updated_at: new Date().toISOString() }).eq('woo_order_id', String(body.id));
+    console.log(`Order ${body.id} marked deleted`);
+  } catch (err) {
+    console.error('processWebhookOrderDeleted error:', err.message);
+  }
+}
+
 async function syncRecentOrders() {
   console.log('WooCommerce: syncing recent orders...');
   for (let page = 1; page <= 3; page++) {
@@ -227,6 +347,9 @@ module.exports = {
   fetchProducts,
   processOrder,
   processWebhookOrder,
+  processWebhookCustomer,
+  processWebhookProduct,
+  processWebhookOrderDeleted,
   syncRecentOrders,
   syncHistorical
 };
