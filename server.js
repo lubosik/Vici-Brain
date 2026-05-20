@@ -17,6 +17,8 @@ function broadcastEvent(event) {
 }
 app.locals.broadcastEvent = broadcastEvent;
 
+app.get('/health', (req, res) => res.json({ status: 'ok', uptime: process.uptime() }));
+
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors({ origin: process.env.APP_URL, credentials: true }));
 app.use('/webhooks', express.raw({ type: '*/*' }));
@@ -43,8 +45,6 @@ app.use('/auth', require('./routes/auth'));
 app.use('/api/events/stream', requireAuth, require('./routes/sse')(sseClients));
 app.use('/api', requireAuth, require('./routes/dashboard'));
 
-app.get('/health', (req, res) => res.json({ status: 'ok', uptime: process.uptime() }));
-
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public/index.html')));
 
@@ -54,7 +54,7 @@ app.listen(PORT, async () => {
   const { error } = await supabase.from('brain_customers').select('id').limit(1);
   if (error) {
     console.error('DB connection failed:', error.message);
-    process.exit(1);
+    // Don't exit — Railway healthcheck needs the server to be up
   }
   console.log(`Vici Brain running on port ${PORT}`);
   console.log(`Supabase: ${process.env.SUPABASE_URL?.slice(0, 30)}...`);
